@@ -1132,6 +1132,14 @@ function downloadPDF(i){
   });
   y += 30;
 
+  // ── NOTIZEN ZUM KUNDEN (editierbar, ging bisher im PDF verloren) ────────
+  const notesDisplayEl = document.getElementById(`notesdisplay-${i}`);
+  const notesTextPDF = notesDisplayEl ? cleanForPDF(stripTags(notesDisplayEl.innerHTML)) : '';
+  if(notesTextPDF){
+    heading('Notizen zum Kunden');
+    paragraph(notesTextPDF, {size:9, color:colText, gap:4});
+  }
+
   // ── HAUTFALTEN-WERTE (farblich, wie gewohnt) ────────────────────────────
   heading('Deine Hautfalten-Werte');
   const colW = [46, contentW-46-26-26, 26, 26];
@@ -1234,6 +1242,31 @@ function downloadPDF(i){
     paragraph(cleanForPDF(li.textContent.trim()), {size:9, color:colText, gap:3, x:marginX+4, width:contentW-4});
   });
   y += 2;
+
+  // ── TRAINING & MEAL-SHEET (editierbar, ging bisher im PDF verloren) ─────
+  const trainingEl = document.getElementById(`trainingbox-${i}`);
+  const trainingTextPDF = trainingEl ? cleanForPDF(stripTags(trainingEl.innerHTML)) : '';
+  const mealEl = document.getElementById(`mealnote-${i}`);
+  const mealTextPDF = mealEl ? cleanForPDF(stripTags(mealEl.innerHTML)) : '';
+  if(trainingTextPDF || mealTextPDF){
+    heading('Training & Meal-Sheet');
+    if(trainingTextPDF){
+      checkPageBreak(10);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+      setColor(colKhaki);
+      doc.text('TRAINING — BASIS-EMPFEHLUNG', marginX, y);
+      y += 4;
+      paragraph(trainingTextPDF, {size:9, color:colText, gap:4});
+    }
+    if(mealTextPDF){
+      checkPageBreak(10);
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+      setColor(colKhaki);
+      doc.text('MEAL-SHEET HINWEIS', marginX, y);
+      y += 4;
+      paragraph(mealTextPDF, {size:9, color:colText, gap:4});
+    }
+  }
 
   // ── ZUSAMMENFASSUNG (hervorgehoben) ────────────────────────────────────
   const gesamtText = cleanForPDF(stripTags(document.getElementById(`gesamtbox-${i}`).innerHTML));
