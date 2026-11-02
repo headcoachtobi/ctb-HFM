@@ -1399,6 +1399,10 @@ function collectRawInputs(){
     entry.notes = document.getElementById(`notes-${idx}`)?.value || '';
     entry.vals = {};
     SF.forEach(s=>{ entry.vals[s.id] = document.getElementById(`${s.id}-${idx}`)?.value || ''; });
+    // Manuelle Anpassungen in der Auswertung (alle editierbaren Felder, in Reihenfolge)
+    if(measurements[idx]){
+      entry.edits = Array.from(document.querySelectorAll(`#res-${idx} .editable`)).map(el=>el.innerHTML);
+    }
     raw.measurementsInput.push(entry);
   }
   return raw;
@@ -1481,6 +1485,15 @@ function applyRawInputs(raw){
   // damit Verlaufsvergleiche zur vorherigen Messung korrekt aufgebaut werden)
   raw.measurementsInput.forEach((entry, idx)=>{
     calcMeas(idx);
+    // Gespeicherte manuelle Anpassungen wiederherstellen (nur wenn Struktur identisch)
+    if(Array.isArray(entry.edits)){
+      const els = document.querySelectorAll(`#res-${idx} .editable`);
+      if(els.length === entry.edits.length){
+        els.forEach((el,k)=>{ el.innerHTML = entry.edits[k]; });
+      } else {
+        console.warn(`Messung ${idx+1}: Struktur geändert (${els.length} vs. ${entry.edits.length} Felder) – Anpassungen nicht übernommen.`);
+      }
+    }
     backToForm(idx); // Eingabemaske zeigen, Ergebnis bleibt im Hintergrund berechnet
   });
 
