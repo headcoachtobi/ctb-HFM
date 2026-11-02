@@ -513,7 +513,7 @@ function buildMeasTab(i){
         <div class="slabel">Kundenprofil · Messung ${i+1}</div>
         <div class="statrow" id="statrow-${i}"></div>
         <div class="fnote" id="zielnote-${i}" style="display:none"></div>
-        <div class="fnote" id="kfawarning-${i}" style="display:none;border-left:3px solid var(--warn)"></div>
+        <div class="fnote editable" id="kfawarning-${i}" contenteditable="true" style="display:none;border-left:3px solid var(--warn)"></div>
       </div>
       <div class="card" id="notescard-${i}" style="display:none">
         <div class="slabel">Notizen zum Kunden</div>
@@ -527,7 +527,7 @@ function buildMeasTab(i){
       </div>
       <div class="card">
         <div class="slabel">Top 3 Prioritäten</div>
-        <div class="edit-hint">✎ Alle Texte sind editierbar — klicke hinein, um individuell anzupassen</div>
+        <div class="edit-hint">✎ Alle Texte sind editierbar — klicke hinein, um individuell anzupassen (Änderungen landen im PDF)</div>
         <div class="prio-sum" id="priosum-${i}"></div>
         <div class="baustellen-grid" id="baustellen-${i}"></div>
       </div>
@@ -871,7 +871,7 @@ function calcMeas(i){
   ];
   const ms=mealSheets[i];
   document.getElementById(`mealnote-${i}`).innerHTML=
-    `<span class="meal-icon">${ms.icon}</span><div>Heute mitgeben: <strong>${ms.label}</strong><br>Ein Schritt nach dem anderen — so bleibt der Kunde nachhaltig dabei.</div>`;
+    `<span class="meal-icon">${ms.icon}</span><div class="editable" contenteditable="true">Heute mitgeben: <strong>${ms.label}</strong><br>Ein Schritt nach dem anderen — so bleibt der Kunde nachhaltig dabei.</div>`;
 
   // ── GESAMTTEXT (kompakt, Deine Sprache) ─────────────────────────────────
   let gt='';
@@ -967,6 +967,13 @@ function backToForm(i){document.getElementById(`form-${i}`).style.display='block
 
 // ── PDF-DOWNLOAD: native jsPDF-Textlayout (zuverlässig, kein Canvas-Rendering) ──
 function downloadPDF(i){
+  try{ downloadPDFCore(i); }
+  catch(e){
+    console.error('PDF-Fehler:', e);
+    alert('PDF konnte nicht erstellt werden.\nFehler: '+(e&&e.message?e.message:e)+(e&&e.stack?'\n'+String(e.stack).split('\n').slice(0,3).join('\n'):''));
+  }
+}
+function downloadPDFCore(i){
   const m=measurements[i];
   if(!m){alert('Bitte zuerst Auswertung erstellen.');return;}
   if(!window.jspdf){alert('PDF-Bibliothek konnte nicht geladen werden — bitte Internetverbindung prüfen.');return;}
@@ -1035,10 +1042,32 @@ function downloadPDF(i){
     y += lines.length*lineH + gap;
     return lines.length;
   }
-  function stripTags(html){
+  // Liest Text aus (editierbaren) HTML-Elementen und erhält Zeilenumbrüche:
+  // <br> und Block-Elemente (div, p, li) werden zu \n — sonst kleben Zeilen/Absätze,
+  // die im Tool per Enter eingefügt wurden, im PDF zusammen.
+  function htmlToText(html){
     const tmp=document.createElement('div');
     tmp.innerHTML=html;
-    return (tmp.textContent||tmp.innerText||'').replace(/\s+/g,' ').trim();
+    tmp.querySelectorAll('br').forEach(b=>b.replaceWith('\n'));
+    const BLOCK=/^(DIV|P|LI|TR|H1|H2|H3|H4|UL|OL)$/;
+    tmp.querySelectorAll('div,p,li,tr,h1,h2,h3,h4').forEach(b=>{
+      // Chrome: erste Zeile steht als nackter Text, Folgezeilen als <div> -> Umbruch davor setzen
+      const prev=b.previousSibling;
+      if(prev && !(prev.nodeType===1 && BLOCK.test(prev.nodeName))) b.before('\n');
+      b.append('\n');
+    });
+    return (tmp.textContent||'')
+      .replace(/\u00a0/g,' ')
+      .replace(/[ \t]+/g,' ')
+      .replace(/ *\n */g,'\n')
+      .replace(/\n{3,}/g,'\n\n')
+      .trim();
+  }
+  function stripTags(html){ return htmlToText(html); }
+  function elText(el){
+    if(!el) return '';
+    try{ return htmlToText(el.innerHTML); }
+    catch(e){ console.warn('htmlToText Fallback', e); return (el.innerText||el.textContent||'').trim(); }
   }
   // jsPDF + Helvetica kann Emojis nicht rendern (führt teils zu leeren/defekten PDFs).
   // Daher vor jeder Textausgabe Emojis entfernen bzw. durch Text ersetzen.
@@ -1053,7 +1082,8 @@ function downloadPDF(i){
       .replace(/💊/g, '')
       // Fallback: alle verbleibenden Emoji/Symbol-Unicode-Bereiche entfernen
       .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}]/gu, '')
-      .replace(/\s{2,}/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/ *\n */g, '\n')
       .trim();
   }
 
@@ -1131,6 +1161,27 @@ function downloadPDF(i){
     doc.text(s[1], bx, y+17);
   });
   y += 30;
+
+  // ── KFA-HINWEIS (editierbar; nur wenn im Tool sichtbar) ─────────────────
+  const kfaWarnEl = document.getElementById(`kfawarning-${i}`);
+  const kfaWarnPDF = (kfaWarnEl && kfaWarnEl.style.display!=='none') ? cleanForPDF(elText(kfaWarnEl)) : '';
+  if(kfaWarnPDF){
+    const kwSize = 9, kwLineH = kwSize*0.353*1.25;
+    doc.setFont('helvetica','normal'); doc.setFontSize(kwSize);
+    const kwLines = doc.splitTextToSize(kfaWarnPDF, contentW-10);
+    const kwH = kwLines.length*kwLineH + 8;
+    checkPageBreak(kwH+6);
+    doc.setFillColor(253,250,242);
+    doc.setDrawColor(239,230,207);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(marginX, y, contentW, kwH, 2.5, 2.5, 'FD');
+    doc.setDrawColor(colWarn[0],colWarn[1],colWarn[2]);
+    doc.setLineWidth(1.2);
+    doc.line(marginX, y+1.2, marginX, y+kwH-1.2);
+    setColor(colText);
+    doc.text(kwLines, marginX+5, y+6);
+    y += kwH + 6;
+  }
 
   // ── NOTIZEN ZUM KUNDEN (editierbar, ging bisher im PDF verloren) ────────
   const notesDisplayEl = document.getElementById(`notesdisplay-${i}`);
@@ -1214,7 +1265,7 @@ function downloadPDF(i){
 
       subs.forEach((sub,sidx)=>{
         const subLabel = cleanForPDF(sub.textContent);
-        const bodyText = editables[sidx]?cleanForPDF(editables[sidx].textContent.trim()):'';
+        const bodyText = editables[sidx]?cleanForPDF(elText(editables[sidx])):'';
         checkPageBreak(8);
         doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
         setColor(colKhaki);
@@ -1233,13 +1284,15 @@ function downloadPDF(i){
 
   // ── SUPPLEMENT-PLAN ──────────────────────────────────────────────────────
   heading('Supplement-Plan');
-  const suppItems = document.querySelectorAll(`#supplist-${i} li`);
-  suppItems.forEach(li=>{
+  // Zeilen aus dem editierbaren Feld lesen (egal ob <li>, <div> oder <br> — vom Browser je nach Bearbeitung erzeugt)
+  const suppEl = document.getElementById(`supplist-${i}`);
+  const suppLines = elText(suppEl).split('\n').map(t=>cleanForPDF(t.replace(/^[•\-–]\s*/,'').trim())).filter(Boolean);
+  suppLines.forEach(line=>{
     checkPageBreak(6);
     doc.setFont('helvetica','bold'); doc.setFontSize(9);
     setColor(colRed);
     doc.text('•', marginX, y);
-    paragraph(cleanForPDF(li.textContent.trim()), {size:9, color:colText, gap:3, x:marginX+4, width:contentW-4});
+    paragraph(line, {size:9, color:colText, gap:3, x:marginX+4, width:contentW-4});
   });
   y += 2;
 
